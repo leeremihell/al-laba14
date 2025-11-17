@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8" />
+<title>Пошук максимального потоку (Edmonds–Karp, покроково)</title>
+<style>
+  body { font-family: sans-serif; }
+  #graph { border: 1px solid #333; }
+  #panel { width: 260px; margin-left: 20px; }
+  #edgeList { max-height: 400px; overflow-y: auto; padding-left: 18px; }
+  li { margin-bottom: 4px; }
+</style>
+</head>
+
+<body>
+<h2>Пошук максимального потоку у мережі (4 → 11, покроково)</h2>
+
+<div style="display:flex; align-items:flex-start;">
+  <canvas id="graph" width="800" height="540"></canvas>
+
+  <div id="panel">
+    <button id="stepBtn">Крок</button>
+
+    <h3>Кроки алгоритму:</h3>
+    <ul id="edgeList"></ul>
+
+    <h3 id="finalFlow" style="color:blue;">Максимальний потік: -</h3>
+  </div>
+</div>
+
+<script>
+// XML (граф)
+const xmlText = `
+<graph_data>
+<graph id="1">
+<title>Graph</title>
+<points>
+	<point id="1" x="400" y="500" />
+	<point id="2" x="200" y="420" />
+	<point id="3" x="40" y="300" />
+	<point id="4" x="200" y="100" />
+	<point id="5" x="400" y="40" />
+	<point id="6" x="620" y="130" />
+	<point id="7" x="590" y="300" />
+	<point id="8" x="750" y="200" />
+	<point id="9" x="410" y="350" />
+	<point id="10" x="260" y="250" />
+	<point id="11" x="420" y="200" />
+</points>
+<lines>
+	<line id="1" from="3" to="4" capacity="43" />
+	<line id="2" from="4" to="5" capacity="14" />
+	<line id="3" from="5" to="11" capacity="11" />
+	<line id="4" from="4" to="11" capacity="35" />
+	<line id="5" from="4" to="10" capacity="11" />
+	<line id="6" from="3" to="10" capacity="3" />
+	<line id="7" from="10" to="11" capacity="11" />
+	<line id="8" from="9" to="10" capacity="35" />
+	<line id="9" from="9" to="11" capacity="19" />
+	<line id="10" from="2" to="3" capacity="26" />
+	<line id="11" from="2" to="10" capacity="43" />
+	<line id="12" from="2" to="9" capacity="14" />
+	<line id="13" from="5" to="6" capacity="11" />
+	<line id="14" from="6" to="8" capacity="35" />
+	<line id="15" from="1" to="2" capacity="2" />
+	<line id="16" from="1" to="9" capacity="31" />
+	<line id="17" from="6" to="11" capacity="14" />
+	<line id="18" from="6" to="7" capacity="12" />
+	<line id="19" from="1" to="7" capacity="34" />
+	<line id="20" from="7" to="8" capacity="43" />
+</lines>
+</graph>
+</graph_data>
+`;
+
+// ------------------------------
+//   Координаты вершин
+// ------------------------------
+const nodes = {};
+{
+  const xml = new DOMParser().parseFromString(xmlText, "application/xml");
+  xml.querySelectorAll("point").forEach(p => {
+    const id = +p.getAttribute("id");
+    nodes[id] = {
+      x: +p.getAttribute("x"),
+      y: +p.getAttribute("y")
+    };
+  });
+}
+
+// ------------------------------
+//   Ребра и остаточная сеть
+// ------------------------------
+let edges = [];
+let residual = {};
+for (let i = 1; i <= 11; i++) residual[i] = {};
+
+{
+  const xml = new DOMParser().parseFromString(xmlText, "application/xml");
+  xml.querySelectorAll("line").forEach(l => {
+    let u = +l.getAttribute("from");
+    let v = +l.getAttribute("to");
+    let c = +l.getAttribute("capacity");
+
+    edges.push([u, v, c]);
+
+    residual[u][v] = (residual[u][v] || 0) + c;
+    residual[v][u] = (residual[v][u] || 0) + c;
+  });
+}
+
+// ------------------------------
+//   Переменные алгоритма
+// ------------------------------
+const SOURCE = 4;
+const SINK = 11;
+
+let currentPathEdges = [];
+let bestFlow = 0;
+let bestPath = null;
+
+// ------------------------------
+//   BFS — один путь
+// ------------------------------
+function findAugmentingPath(source, sink) {
+  let parent = {};
+  let visited = new Set();
+  let q = [source];
+  visited.add(source);
+  parent[source] = -1;
+
+  while (q.length > 0) {
+    let u = q.shift();
+
+    for (let v in residual[u]) {
+      v = +v;
+      if (!visited.has(v) && residual[u][v] > 0) {
+        visited.add(v);
+        parent[v] = u;
+        q.push(v);
+        if (v === sink) {
+          let path = [];
+          let cur = sink;
+          while (cur !== -1) {
+            path.push(cur);
+            cur = parent[cur];
+          }
+          path.reverse();
+
+          let pathFlow = Infinity;
+          for (let i = 0; i < path.length - 1; i++) {
+            pathFlow = Math.min(pathFlow, residual[path[i]][path[i+1]]);
+          }
+
+          return { path, pathFlow };
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+// ------------------------------
+//   Один шаг алгоритма
+// ------------------------------
+function stepMaxFlow() {
+  const result = findAugmentingPath(SOURCE, SINK);
+
+  if (!result) {
+    document.getElementById("stepBtn").disabled = true;
+    return;
+  }
+
+  const path = result.path;
+  const pathFlow = result.pathFlow;
+
+  // обновляем остаточную сеть
+  for (let i = 0; i < path.length - 1; i++) {
+    let u = path[i];
+    let v = path[i+1];
+    residual[u][v] -= pathFlow;
+    residual[v][u] += pathFlow;
+  }
+
+  // подсветка пути
+  currentPathEdges = [];
+  for (let i = 0; i < path.length - 1; i++) {
+    currentPathEdges.push([path[i], path[i+1]]);
+  }
+
+  // лог
+  const list = document.getElementById("edgeList");
+  const li = document.createElement("li");
+  li.textContent = path.join("-") + " = " + pathFlow;
+  list.appendChild(li);
+
+  // обновление "максимального" пути (по пропускной способности)
+  if (pathFlow > bestFlow) {
+    bestFlow = pathFlow;
+    bestPath = path.slice();
+  }
+
+  if (bestPath) {
+    document.getElementById("finalFlow").textContent =
+      "Максимальний потік: " + bestPath.join("-") + " = " + bestFlow;
+  }
+
+  draw();
+}
+
+// ------------------------------
+//   Отрисовка графа
+// ------------------------------
+const canvas = document.getElementById("graph");
+const ctx = canvas.getContext("2d");
+
+function draw() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // рёбра
+  ctx.strokeStyle = "#777";
+  ctx.lineWidth = 1;
+  ctx.font = "18px Arial";
+
+  edges.forEach(([u,v,w]) => {
+    const a = nodes[u], b = nodes[v];
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+    ctx.fillStyle = "black";
+    ctx.fillText(w, (a.x+b.x)/2, (a.y+b.y)/2);
+  });
+
+  // подсвеченный путь (синий)
+  if (currentPathEdges.length > 0) {
+    ctx.strokeStyle = "blue";
+    ctx.lineWidth = 4;
+    currentPathEdges.forEach(([u,v]) => {
+      const a = nodes[u], b = nodes[v];
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    });
+  }
+
+  // вершины — но 4 и 11 выделяем синим
+  for (let i = 1; i <= 11; i++) {
+    const {x,y} = nodes[i];
+
+    ctx.beginPath();
+    ctx.arc(x, y, 19, 0, Math.PI*2);
+
+    ctx.fillStyle = "white";
+    ctx.fill();
+
+    if (i === 4 || i === 11) {
+      ctx.strokeStyle = "blue";
+      ctx.lineWidth = 3;
+    } else {
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 1;
+    }
+
+    ctx.stroke();
+    ctx.fillStyle = "black";
+    ctx.fillText(i, x-7, y+7);
+  }
+}
+
+draw();
+
+document.getElementById("stepBtn").onclick = stepMaxFlow;
+</script>
+
+</body>
+</html>
