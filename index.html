@@ -2,7 +2,7 @@
 <html lang="uk">
 <head>
 <meta charset="UTF-8" />
-<title>Пошук максимального потоку (Edmonds–Karp, покроково)</title>
+<title>Пошук максимальної пропускної здатності шляху (4 → 11)</title>
 <style>
   body { font-family: sans-serif; }
   #graph { border: 1px solid #333; }
@@ -13,7 +13,7 @@
 </head>
 
 <body>
-<h2>Пошук максимального потоку у мережі (4 → 11, покроково)</h2>
+<h2>Пошук шляху з максимальною пропускною здатністю у мережі (4 → 11)</h2>
 
 <div style="display:flex; align-items:flex-start;">
   <canvas id="graph" width="800" height="540"></canvas>
@@ -21,10 +21,10 @@
   <div id="panel">
     <button id="stepBtn">Крок</button>
 
-    <h3>Кроки алгоритму:</h3>
+    <h3>Шляхи 4 → 11:</h3>
     <ul id="edgeList"></ul>
 
-    <h3 id="finalFlow" style="color:blue;">Максимальний потік: -</h3>
+    <h3 id="finalFlow" style="color:blue;">Максимальна пропускна здатність: -</h3>
   </div>
 </div>
 
@@ -88,11 +88,11 @@ const nodes = {};
 }
 
 // ------------------------------
-//   Ребра и остаточная сеть
+//   Ребра и матрица capacity (БЕЗ остаточной сети)
 // ------------------------------
 let edges = [];
-let residual = {};
-for (let i = 1; i <= 11; i++) residual[i] = {};
+let capacity = {};
+for (let i = 1; i <= 11; i++) capacity[i] = {};
 
 {
   const xml = new DOMParser().parseFromString(xmlText, "application/xml");
@@ -102,9 +102,9 @@ for (let i = 1; i <= 11; i++) residual[i] = {};
     let c = +l.getAttribute("capacity");
 
     edges.push([u, v, c]);
-
-    residual[u][v] = (residual[u][v] || 0) + c;
-    residual[v][u] = (residual[v][u] || 0) + c;
+    // граф НЕНАПРАВЛЕННЫЙ → делаем ребро двусторонним
+    capacity[u][v] = c;
+    capacity[v][u] = c;
   });
 }
 
@@ -114,75 +114,70 @@ for (let i = 1; i <= 11; i++) residual[i] = {};
 const SOURCE = 4;
 const SINK = 11;
 
-let currentPathEdges = [];
-let bestFlow = 0;
-let bestPath = null;
+let currentPathEdges = [];   // путь, который сейчас подсвечиваем
+let bestWidth = -Infinity;   // максимальная "пропускная способность" (максимум из минимумов)
+let bestPath = null;         // путь с максимальной пропускной способностью
+let allPaths = [];           // все простые пути из 4 в 11
+let pathIndex = 0;           // какой путь сейчас показываем
 
 // ------------------------------
-//   BFS — один путь
+//   DFS — поиск всех путей 4 → 11
 // ------------------------------
-function findAugmentingPath(source, sink) {
-  let parent = {};
-  let visited = new Set();
-  let q = [source];
-  visited.add(source);
-  parent[source] = -1;
-
-  while (q.length > 0) {
-    let u = q.shift();
-
-    for (let v in residual[u]) {
-      v = +v;
-      if (!visited.has(v) && residual[u][v] > 0) {
-        visited.add(v);
-        parent[v] = u;
-        q.push(v);
-        if (v === sink) {
-          let path = [];
-          let cur = sink;
-          while (cur !== -1) {
-            path.push(cur);
-            cur = parent[cur];
-          }
-          path.reverse();
-
-          let pathFlow = Infinity;
-          for (let i = 0; i < path.length - 1; i++) {
-            pathFlow = Math.min(pathFlow, residual[path[i]][path[i+1]]);
-          }
-
-          return { path, pathFlow };
-        }
-      }
-    }
+function dfs(u, path, visited) {
+  if (u === SINK) {
+    allPaths.push(path.slice());
+    return;
   }
 
-  return null;
+  for (let v in capacity[u]) {
+    v = +v;
+    if (!visited.has(v)) {
+      visited.add(v);
+      path.push(v);
+      dfs(v, path, visited);
+      path.pop();
+      visited.delete(v);
+    }
+  }
+}
+
+// считаем все пути один раз при старте
+(function buildAllPaths() {
+  let visited = new Set();
+  visited.add(SOURCE);
+  dfs(SOURCE, [SOURCE], visited);
+})();
+
+// ------------------------------
+//   минимальная capacity по пути
+//   (то, что ты называешь "пропускной способностью пути")
+// ------------------------------
+function minCapacityOnPath(path) {
+  let minCap = Infinity;
+  for (let i = 0; i < path.length - 1; i++) {
+    let u = path[i];
+    let v = path[i + 1];
+    let c = capacity[u][v];
+    if (c == null) return Infinity; // на всякий случай
+    minCap = Math.min(minCap, c);
+  }
+  return minCap;
 }
 
 // ------------------------------
-//   Один шаг алгоритма
+//   Один шаг: показать следующий путь
 // ------------------------------
-function stepMaxFlow() {
-  const result = findAugmentingPath(SOURCE, SINK);
-
-  if (!result) {
+function stepShowPaths() {
+  if (pathIndex >= allPaths.length) {
+    // пути закончились — больше нечего показывать
     document.getElementById("stepBtn").disabled = true;
     return;
   }
 
-  const path = result.path;
-  const pathFlow = result.pathFlow;
+  const path = allPaths[pathIndex++];
+  const width = minCapacityOnPath(path); // "максимальна пропускна здатність" этого пути = минимум по рёбрам
 
-  // обновляем остаточную сеть
-  for (let i = 0; i < path.length - 1; i++) {
-    let u = path[i];
-    let v = path[i+1];
-    residual[u][v] -= pathFlow;
-    residual[v][u] += pathFlow;
-  }
-
-  // подсветка пути
+  // подсветка текущего пути
   currentPathEdges = [];
   for (let i = 0; i < path.length - 1; i++) {
     currentPathEdges.push([path[i], path[i+1]]);
@@ -191,18 +186,18 @@ function stepMaxFlow() {
   // лог
   const list = document.getElementById("edgeList");
   const li = document.createElement("li");
-  li.textContent = path.join("-") + " = " + pathFlow;
+  li.textContent = path.join("-") + " = " + width;
   list.appendChild(li);
 
-  // обновление "максимального" пути (по пропускной способности)
-  if (pathFlow > bestFlow) {
-    bestFlow = pathFlow;
+  // обновляем лучший путь (тот, у которого минимум по рёбрам максимальный)
+  if (width > bestWidth) {
+    bestWidth = width;
     bestPath = path.slice();
   }
 
   if (bestPath) {
     document.getElementById("finalFlow").textContent =
-      "Максимальний потік: " + bestPath.join("-") + " = " + bestFlow;
+      "Максимальна пропускна здатність: " + bestPath.join("-") + " = " + bestWidth;
   }
 
   draw();
@@ -245,7 +240,7 @@ function draw() {
     });
   }
 
-  // вершины — но 4 и 11 выделяем синим
+  // вершины — 4 и 11 выделяем синим
   for (let i = 1; i <= 11; i++) {
     const {x,y} = nodes[i];
 
@@ -271,7 +266,7 @@ function draw() {
 
 draw();
 
-document.getElementById("stepBtn").onclick = stepMaxFlow;
+document.getElementById("stepBtn").onclick = stepShowPaths;
 </script>
 
 </body>
