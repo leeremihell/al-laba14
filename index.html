@@ -29,58 +29,60 @@
 </div>
 
 <script>
-// XML (граф)
+// XML з flow та capacity
 const xmlText = `
 <graph_data>
 <graph id="1">
 <title>Graph</title>
+
 <points>
-	<point id="1" x="40" y="250" />
-	<point id="2" x="200" y="100" />
-	<point id="3" x="280" y="200" />
-	<point id="4" x="200" y="420" />
-	<point id="5" x="410" y="350" />
-	<point id="6" x="400" y="130" />
-	<point id="7" x="550" y="310" />
-	<point id="8" x="620" y="170" />
-	<point id="9" x="400" y="480" />
-	<point id="10" x="610" y="450" />
-	<point id="11" x="700" y="300" />
+    <point id="1" x="40" y="250" />
+    <point id="2" x="200" y="100" />
+    <point id="3" x="280" y="200" />
+    <point id="4" x="200" y="420" />
+    <point id="5" x="410" y="350" />
+    <point id="6" x="400" y="130" />
+    <point id="7" x="550" y="310" />
+    <point id="8" x="620" y="170" />
+    <point id="9" x="400" y="480" />
+    <point id="10" x="610" y="450" />
+    <point id="11" x="700" y="300" />
 </points>
+
 <lines>
-	<line id="1" from="3" to="4" capacity="2" />
-	<line id="2" from="4" to="5" capacity="8" />
-	<line id="3" from="3" to="8" capacity="9" />
-	<line id="4" from="4" to="9" capacity="4" />
-	<line id="5" from="3" to="7" capacity="8" />
-	<line id="6" from="3" to="5" capacity="3" />
-	<line id="7" from="10" to="11" capacity="5" />
-	<line id="8" from="9" to="10" capacity="6" />
-	<line id="9" from="5" to="7" capacity="3" />
-	<line id="10" from="2" to="3" capacity="2" />
-	<line id="11" from="2" to="6" capacity="3" />
-	<line id="12" from="5" to="10" capacity="7" />
-	<line id="13" from="8" to="11" capacity="10" />
-	<line id="14" from="6" to="8" capacity="20" />
-	<line id="15" from="1" to="2" capacity="10" />
-	<line id="16" from="1" to="3" capacity="8" />
-	<line id="17" from="1" to="4" capacity="8" />
-	<line id="18" from="7" to="8" capacity="9" />
-	<line id="18" from="3" to="6" capacity="3" />
+    <line id="1" from="3" to="4" capacity="18" flow="2" />
+    <line id="2" from="4" to="5" capacity="9" flow="8" />
+    <line id="3" from="3" to="8" capacity="15" flow="9" />
+    <line id="4" from="4" to="9" capacity="7" flow="4" />
+    <line id="5" from="3" to="7" capacity="26" flow="8" />
+    <line id="6" from="3" to="5" capacity="17" flow="3" />
+    <line id="7" from="10" to="11" capacity="7" flow="5" />
+    <line id="8" from="9" to="10" capacity="6" flow="6" />
+    <line id="9" from="5" to="7" capacity="6" flow="3" />
+    <line id="10" from="2" to="3" capacity="18" flow="2" />
+    <line id="11" from="2" to="6" capacity="12" flow="3" />
+    <line id="12" from="5" to="10" capacity="17" flow="7" />
+    <line id="13" from="8" to="11" capacity="18" flow="10" />
+    <line id="14" from="6" to="8" capacity="21" flow="20" />
+    <line id="15" from="1" to="2" capacity="18" flow="10" />
+    <line id="16" from="1" to="3" capacity="8" flow="8" />
+    <line id="17" from="1" to="4" capacity="9" flow="8" />
+    <line id="18" from="7" to="8" capacity="15" flow="9" />
+    <line id="19" from="3" to="6" capacity="4" flow="3" />
 </lines>
+
 </graph>
 </graph_data>
 `;
 
 // ------------------------------
-//   Координаты вершин
+//   Координати
 // ------------------------------
 const nodes = {};
 {
   const xml = new DOMParser().parseFromString(xmlText, "application/xml");
   xml.querySelectorAll("point").forEach(p => {
-    const id = +p.getAttribute("id");
-    nodes[id] = {
+    nodes[+p.getAttribute("id")] = {
       x: +p.getAttribute("x"),
       y: +p.getAttribute("y")
     };
@@ -88,11 +90,15 @@ const nodes = {};
 }
 
 // ------------------------------
-//   Ребра и матрица capacity (БЕЗ остаточной сети)
+//   Ребра: зберігаємо capacity та flow
 // ------------------------------
 let edges = [];
 let capacity = {};
-for (let i = 1; i <= 11; i++) capacity[i] = {};
+let flow = {};
+for (let i = 1; i <= 11; i++) {
+  capacity[i] = {};
+  flow[i] = {};
+}
 
 {
   const xml = new DOMParser().parseFromString(xmlText, "application/xml");
@@ -100,29 +106,32 @@ for (let i = 1; i <= 11; i++) capacity[i] = {};
     let u = +l.getAttribute("from");
     let v = +l.getAttribute("to");
     let c = +l.getAttribute("capacity");
+    let f = +l.getAttribute("flow");
 
-    edges.push([u, v, c]);
-    // граф НЕНАПРАВЛЕННЫЙ → делаем ребро двусторонним
+    edges.push([u, v, c, f]);
+
     capacity[u][v] = c;
     capacity[v][u] = c;
+
+    flow[u][v] = f;
+    flow[v][u] = f;  // бо граф ненапрямлений
   });
 }
 
 // ------------------------------
-//   Переменные алгоритма
+//   Wide Path по остаткам (capacity - flow)
 // ------------------------------
+
 const SOURCE = 4;
 const SINK = 11;
 
-let currentPathEdges = [];   // путь, который сейчас подсвечиваем
-let bestWidth = -Infinity;   // максимальная "пропускная способность" (максимум из минимумов)
-let bestPath = null;         // путь с максимальной пропускной способностью
-let allPaths = [];           // все простые пути из 4 в 11
-let pathIndex = 0;           // какой путь сейчас показываем
+let currentPathEdges = [];
+let bestWidth = -Infinity;
+let bestPath = null;
+let allPaths = [];
+let pathIndex = 0;
 
-// ------------------------------
-//   DFS — поиск всех путей 4 → 11
-// ------------------------------
+// DFS для всех путей
 function dfs(u, path, visited) {
   if (u === SINK) {
     allPaths.push(path.slice());
@@ -131,6 +140,10 @@ function dfs(u, path, visited) {
 
   for (let v in capacity[u]) {
     v = +v;
+
+    // Не идём по насыщенным рёбрам
+    if (residual(u, v) <= 0) continue;
+
     if (!visited.has(v)) {
       visited.add(v);
       path.push(v);
@@ -141,55 +154,47 @@ function dfs(u, path, visited) {
   }
 }
 
-// считаем все пути один раз при старте
+// запускаем DFS
 (function buildAllPaths() {
-  let visited = new Set();
-  visited.add(SOURCE);
-  dfs(SOURCE, [SOURCE], visited);
+  let vis = new Set();
+  vis.add(SOURCE);
+  dfs(SOURCE, [SOURCE], vis);
 })();
 
-// ------------------------------
-//   минимальная capacity по пути
-//   (то, что ты называешь "пропускной способностью пути")
-// ------------------------------
-function minCapacityOnPath(path) {
-  let minCap = Infinity;
-  for (let i = 0; i < path.length - 1; i++) {
-    let u = path[i];
-    let v = path[i + 1];
-    let c = capacity[u][v];
-    if (c == null) return Infinity; // на всякий случай
-    minCap = Math.min(minCap, c);
-  }
-  return minCap;
+// остаток
+function residual(u, v) {
+  return capacity[u][v] - flow[u][v];
 }
 
-// ------------------------------
-//   Один шаг: показать следующий путь
-// ------------------------------
+// минимальный остаток по пути
+function minResidualOnPath(path) {
+  let mn = Infinity;
+  for (let i = 0; i < path.length - 1; i++) {
+    mn = Math.min(mn, residual(path[i], path[i+1]));
+  }
+  return mn;
+}
+
+// шаг
 function stepShowPaths() {
   if (pathIndex >= allPaths.length) {
-    // пути закончились — больше нечего показывать
     document.getElementById("stepBtn").disabled = true;
     return;
   }
 
   const path = allPaths[pathIndex++];
-  const width = minCapacityOnPath(path); // "максимальна пропускна здатність" этого пути = минимум по рёбрам
+  const width = minResidualOnPath(path);
 
-  // подсветка текущего пути
   currentPathEdges = [];
   for (let i = 0; i < path.length - 1; i++) {
     currentPathEdges.push([path[i], path[i+1]]);
   }
 
-  // лог
   const list = document.getElementById("edgeList");
   const li = document.createElement("li");
-  li.textContent = path.join("-") + " = " + width;
+  li.textContent = `${path.join("-")} = ${width}`;
   list.appendChild(li);
 
-  // обновляем лучший путь (тот, у которого минимум по рёбрам максимальный)
   if (width > bestWidth) {
     bestWidth = width;
     bestPath = path.slice();
@@ -197,14 +202,14 @@ function stepShowPaths() {
 
   if (bestPath) {
     document.getElementById("finalFlow").textContent =
-      "Максимальна пропускна здатність: " + bestPath.join("-") + " = " + bestWidth;
+      `Максимальна пропускна здатність: ${bestPath.join("-")} = ${bestWidth}`;
   }
 
   draw();
 }
 
 // ------------------------------
-//   Отрисовка графа
+//   Рисование
 // ------------------------------
 const canvas = document.getElementById("graph");
 const ctx = canvas.getContext("2d");
@@ -212,45 +217,44 @@ const ctx = canvas.getContext("2d");
 function draw() {
   ctx.clearRect(0,0,canvas.width,canvas.height);
 
-  // рёбра
   ctx.strokeStyle = "#777";
   ctx.lineWidth = 1;
-  ctx.font = "18px Arial";
+  ctx.font = "16px Arial";
 
-  edges.forEach(([u,v,w]) => {
+  // рёбра с отображением flow/cap
+  edges.forEach(([u, v, c, f]) => {
+    const a = nodes[u], b = nodes[v];
+
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+
+    ctx.fillStyle = "black";
+    ctx.fillText(`${f}/${c}`, (a.x + b.x) / 2, (a.y + b.y) / 2);
+  });
+
+  // подсветка пути
+  ctx.strokeStyle = "blue";
+  ctx.lineWidth = 4;
+  currentPathEdges.forEach(([u, v]) => {
     const a = nodes[u], b = nodes[v];
     ctx.beginPath();
     ctx.moveTo(a.x, a.y);
     ctx.lineTo(b.x, b.y);
     ctx.stroke();
-    ctx.fillStyle = "black";
-    ctx.fillText(w, (a.x+b.x)/2, (a.y+b.y)/2);
   });
 
-  // подсвеченный путь (синий)
-  if (currentPathEdges.length > 0) {
-    ctx.strokeStyle = "blue";
-    ctx.lineWidth = 4;
-    currentPathEdges.forEach(([u,v]) => {
-      const a = nodes[u], b = nodes[v];
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.stroke();
-    });
-  }
-
-  // вершины — 4 и 11 выделяем синим
+  // вершины
   for (let i = 1; i <= 11; i++) {
-    const {x,y} = nodes[i];
+    const {x, y} = nodes[i];
 
     ctx.beginPath();
     ctx.arc(x, y, 19, 0, Math.PI*2);
-
     ctx.fillStyle = "white";
     ctx.fill();
 
-    if (i === 4 || i === 11) {
+    if (i === SOURCE || i === SINK) {
       ctx.strokeStyle = "blue";
       ctx.lineWidth = 3;
     } else {
@@ -260,7 +264,7 @@ function draw() {
 
     ctx.stroke();
     ctx.fillStyle = "black";
-    ctx.fillText(i, x-7, y+7);
+    ctx.fillText(i, x - 7, y + 7);
   }
 }
 
